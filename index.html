@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>Строй Империю - бизнес-симулятор строительной империи</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none; /* улучшает ощущение интерфейса, текст можно копировать */
+        }
+
+        body {
+            background: linear-gradient(145deg, #1a2a3a 0%, #0f1a24 100%);
+            font-family: 'Segoe UI', 'Roboto', 'Trebuchet MS', sans-serif;
+            margin: 0;
+            padding: 20px;
+            color: #eef4ff;
+        }
+
+        /* главный контейнер */
+        .game-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: rgba(10, 20, 30, 0.65);
+            backdrop-filter: blur(2px);
+            border-radius: 2rem;
+            padding: 1.2rem;
+            box-shadow: 0 20px 35px rgba(0,0,0,0.5);
+            border: 1px solid rgba(255,215,120,0.2);
+        }
+
+        /* верхняя панель с ресурсами */
+        .stats-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            justify-content: space-between;
+            background: #0e1a24cc;
+            padding: 12px 20px;
+            border-radius: 60px;
+            margin-bottom: 20px;
+            backdrop-filter: blur(4px);
+            border: 1px solid #ffd96655;
+        }
+        .stat {
+            background: #00000055;
+            padding: 5px 15px;
+            border-radius: 32px;
+            font-weight: bold;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.9rem;
+        }
+        .stat span:first-child { color: #ffd966; }
+        .stat .value { color: #f5f9ff; font-family: monospace; font-size: 1.1rem; }
+
+        /* вкладки */
+        .tabs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #ffc85733;
+            padding-bottom: 5px;
+        }
+        .tab-btn {
+            background: #1f3a48;
+            border: none;
+            padding: 8px 20px;
+            border-radius: 40px;
+            color: #cce7ff;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.2s;
+            font-size: 0.85rem;
+        }
+        .tab-btn.active {
+            background: #ffb347;
+            color: #0a1c2a;
+            box-shadow: 0 0 8px #ffb347;
+        }
+        .tab-pane {
+            display: none;
+            background: #0e1a24aa;
+            border-radius: 28px;
+            padding: 18px;
+            backdrop-filter: blur(4px);
+        }
+        .tab-pane.active {
+            display: block;
+            animation: fade 0.2s;
+        }
+        @keyframes fade { from { opacity:0; } to { opacity:1; }}
+
+        /* карточки, сетки */
+        .grid-2, .grid-3 {
+            display: grid;
+            gap: 16px;
+            margin-top: 15px;
+        }
+        .grid-2 { grid-template-columns: repeat(auto-fit, minmax(280px,1fr)); }
+        .grid-3 { grid-template-columns: repeat(auto-fit, minmax(240px,1fr)); }
+        .card {
+            background: #07131cd9;
+            border-radius: 24px;
+            padding: 14px;
+            border-left: 5px solid #ffb347;
+            transition: 0.1s;
+        }
+        button {
+            background: #2d5f7e;
+            border: none;
+            color: white;
+            padding: 8px 15px;
+            border-radius: 40px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.1s;
+            margin: 4px 4px 0 0;
+            font-size: 0.8rem;
+        }
+        button:hover { background: #ff9f2e; transform: scale(0.97); color:#0a1c2a;}
+        .danger-btn { background: #8b3c2c; }
+        .success-btn { background: #2b6e4e; }
+        .warning { color: #ffaa66; }
+        hr { border-color: #ffc85733; margin: 12px 0; }
+        .log-area {
+            max-height: 200px;
+            overflow-y: auto;
+            background: #030c12;
+            border-radius: 16px;
+            padding: 8px;
+            font-size: 0.75rem;
+            font-family: monospace;
+        }
+        .event-text { margin: 2px 0; color:#bbd4ff; border-left: 2px solid gold; padding-left: 8px;}
+
+        @media (max-width: 750px) {
+            .stats-bar { flex-direction: column; border-radius: 28px; }
+            .tab-btn { padding: 5px 12px; font-size: 0.7rem; }
+        }
+        input, select {
+            background: #1f3442;
+            border: 1px solid #ffb34788;
+            padding: 6px;
+            border-radius: 20px;
+            color: white;
+            margin: 4px 0;
+        }
+        .inline-flex { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+    </style>
+</head>
+<body>
+<div class="game-container">
+    <div class="stats-bar" id="statsBar"></div>
+    <div class="tabs" id="tabs"></div>
+    <div id="tabContent"></div>
+</div>
+
+<script>
+    // ------------------- ГЛОБАЛЬНОЕ СОСТОЯНИЕ ИГРЫ -------------------
+    let gameState = {
+        version: 1,
+        // Персонаж: жизненный этап, возраст, характеристики
+        age: 0,          // лет
+        stage: "baby",   // baby, school, college, university, working, entrepreneur
+        education: "none", // none, college, university
+        intelligence: 5,
+        communication: 5,
+        leadership: 5,
+        health: 80,
+        mood: 70,
+        // финансы
+        money: 5000,      // стартовые (родители на baby)
+        bankLoan: 0,
+        creditRating: 500,
+        // компания (если entrepreneur)
+        companyName: "СтройМастер",
+        hasCompany: false,
+        reputation: 30,
+        // персонал / техника (упрощённые массивы)
+        workers: { builders: 0, engineers: 0, managers: 0, drivers: 0 },
+        vehicles: { excavators: 0, cranes: 0, trucks: 0, mixers: 0 },
+        materials: 100,
+        // строительные проекты активные (массив)
+        activeProjects: [],
+        // недвижимость/бизнес
+        realEstate: [],   // { type, income, cost, name }
+        // конкуренты (динамические)
+        competitors: [],
+        // семья
+        married: false,
+        spouseName: "",
+        children: 0,
+        familyExpenses: 0,
+        // время: игровой день/месяц (тики)
+        day: 1,
+        month: 1,
+        year: 2025,
+        // экономика
+        inflation: 1.0,
+        marketBoom: 1.0,
+        // события
+        lastEvents: [],
+        // история для сохранения
+        nextProjectId: 101,
+        // накопленный опыт до открытия бизнеса
+        workJob: null,    // текущая работа до бизнеса { title, salary, exp }
+        workExp: 0,
+    };
+
+    // ---- Справочники констант ----
+    const JOBS = [
+        { title: "Разнорабочий", salary: 1200, expGain: 1, intReq: 0 },
+        { title: "Курьер", salary: 1400, expGain: 1, intReq: 2 },
+        { title: "Строитель", salary: 2000, expGain: 2, intReq: 3 },
+        { title: "Инженер", salary: 3200, expGain: 3, intReq: 6, eduReq: "university" },
+        { title: "Менеджер", salary: 3800, expGain: 3, intReq: 6, commReq: 6 }
+    ];
+
+    // проекты-заказы (доступные)
+    const PROJECT_TEMPLATES = [
+        { name: "Ремонт квартиры", difficulty: 1, duration: 15, cost: 8000, revenue: 13000, reqBuilders: 2, reqMaterials: 30 },
+        { name: "Коттедж", difficulty: 2, duration: 45, cost: 45000, revenue: 72000, reqBuilders: 5, reqMaterials: 150 },
+        { name: "Офисное здание", difficulty: 3, duration: 90, cost: 180000, revenue: 290000, reqBuilders: 12, reqMaterials: 500 },
+        { name: "Торговый центр", difficulty: 4, duration: 150, cost: 550000, revenue: 900000, reqBuilders: 25, reqMaterials: 1500 }
+    ];
+
+    // ---- вспомогательные функции ----
+    function addLog(msg) {
+        gameState.lastEvents.unshift(`[День ${gameState.day}] ${msg}`);
+        if (gameState.lastEvents.length > 35) gameState.lastEvents.pop();
+        renderLog();
+    }
+
+    // симуляция дня (тик)
+    function gameTick() {
+        // проход дней, месяца, года
+        gameState.day++;
+        if (gameState.day > 30) {
+            gameState.day = 1;
+            gameState.month++;
+            if (gameState.month > 12) {
+                gameState.month = 1;
+                gameState.year++;
+                // старение персонажа +1 год
+                gameState.age++;
+                handleAging();
+            }
+            monthlyUpdate();
+        }
+
+        // обработка активных проектов (строительство)
+        if (gameState.hasCompany) {
+            for (let i = 0; i < gameState.activeProjects.length; i++) {
+                let p = gameState.activeProjects[i];
+                p.progress = (p.progress || 0) + 1;
+                if (p.progress >= p.duration) {
+                    // завершение проекта
+                    gameState.money += p.revenue;
+                    addLog(`✅ Проект "${p.name}" завершён! Получено ${formatMoney(p.revenue)}. Репутация +${p.difficulty*2}`);
+                    gameState.reputation += p.difficulty * 2;
+                    gameState.activeProjects.splice(i,1);
+                    i--;
+                } else {
+                    // ежедневные расходы на проект
+                    let dailyCost = p.cost / p.duration;
+                    gameState.money -= dailyCost;
+                    if (gameState.money < 0) gameState.money = 0;
+                }
+            }
+            // доход от недвижимости и бизнеса (пассив)
+            let passive = 0;
+            for (let est of gameState.realEstate) { passive += est.income; }
+            if (passive > 0) {
+                gameState.money += passive;
+                addLog(`🏢 Пассивный доход от недвижимости: +${formatMoney(passive)}`);
+            }
+            // расходы на зарплаты
+            let salaryCost = (gameState.workers.builders * 180 + gameState.workers.engineers * 280 + gameState.workers.managers * 350 + gameState.workers.drivers * 160);
+            gameState.money -= salaryCost;
+            // расходы на технику (обслуживание)
+            let techCost = (gameState.vehicles.excavators*40 + gameState.vehicles.cranes*70 + gameState.vehicles.trucks*30 + gameState.vehicles.mixers*25);
+            gameState.money -= techCost;
+            if (salaryCost+techCost > 0) addLog(`💼 Зарплаты+техника: -${formatMoney(salaryCost+techCost)}`);
+        } else {
+            // работа по найму
+            if (gameState.workJob) {
+                let salary = gameState.workJob.salary;
+                gameState.money += salary;
+                addLog(`💵 Зарплата (${gameState.workJob.title}): +${formatMoney(salary)}`);
+                gameState.workExp++;
+                if (gameState.workExp >= 24 && !gameState.hasCompany && gameState.money > 80000 && (gameState.age>=22 || gameState.education!="none")) {
+                    addLog("🎉 У вас достаточно опыта и капитала, чтобы открыть строительную компанию! Перейдите во вкладку 'Бизнес' и нажмите 'Основать компанию'");
+                }
+            }
+        }
+
+        // расходы на семью
+        if (gameState.married) {
+            let familyCost = 500 + (gameState.children * 400);
+            gameState.money -= familyCost;
+            gameState.familyExpenses = familyCost;
+            if (gameState.mood < 100) gameState.mood += 1;
+        } else { gameState.familyExpenses = 0; }
+
+        // здоровье и настроение
+        if (gameState.health < 100 && gameState.money > 200) gameState.health += 0.5;
+        if (gameState.mood < 100) gameState.mood += 0.3;
+        if (gameState.health <= 0) { gameOver("здоровье иссякло..."); }
+
+        // конкуренты и рыночные изменения
+        updateMarketAndCompetitors();
+
+        // проверка банкротства
+        if (gameState.money < -20000 && gameState.hasCompany) {
+            addLog("💀 Банкротство! Ваша компания обанкрочена. Возврат к работе.");
+            gameState.hasCompany = false;
+            gameState.money = Math.max(5000, gameState.money);
+            gameState.workJob = JOBS[2];
+            gameState.workExp = 12;
+        }
+
+        clampValues();
+        renderAll();
+        saveGame();
+    }
+
+    function handleAging() {
+        // возрастные изменения
+        if (gameState.age >= 70) {
+            addLog("⚠️ Вы в преклонном возрасте, здоровье ухудшается");
+            gameState.health -= 2;
+            if (gameState.health <= 0) gameOver("старость");
+        } else if (gameState.age >= 18 && gameState.stage === "school") {
+            gameState.stage = "adult";
+            addLog("📚 Вы закончили школу. Пора выбирать дальнейший путь (колледж/университет/работа) во вкладке 'Жизнь'.");
+        }
+        if (gameState.age >= 18 && !gameState.education && gameState.stage !== "working") gameState.stage = "adult";
+    }
+
+    function monthlyUpdate() {
+        // инфляция и изменение рынка
+        let r = Math.random();
+        if (r < 0.3) gameState.inflation = parseFloat((gameState.inflation + (Math.random() * 0.03 - 0.01)).toFixed(2));
+        if (gameState.inflation < 0.9) gameState.inflation = 0.9;
+        if (gameState.inflation > 1.4) gameState.inflation = 1.4;
+
+        if (Math.random() < 0.2) {
+            let boom = Math.random() > 0.7 ? 1.2 : 0.9;
+            gameState.marketBoom = boom;
+            addLog(boom>1? "🏗️ Строительный бум! Цены выросли.":"📉 Рынок недвижимости падает.");
+        }
+        // выплата процентов по кредиту
+        if (gameState.bankLoan > 0) {
+            let interest = gameState.bankLoan * 0.025;
+            gameState.money -= interest;
+            addLog(`🏦 Проценты по кредиту: -${formatMoney(interest)}`);
+        }
+    }
+
+    function updateMarketAndCompetitors() {
+        // конкуренты: 3 ИИ компании динамика
+        if (!gameState.competitors.length) {
+            gameState.competitors = [
+                { name: "ГрандСтрой", reputation: 60, money: 150000, active: true },
+                { name: "Монолит", reputation: 45, money: 90000, active: true },
+                { name: "СК Альянс", reputation: 70, money: 210000, active: true }
+            ];
+        } else {
+            for (let comp of gameState.competitors) {
+                comp.money += Math.floor(Math.random() * 5000);
+                if (comp.reputation < gameState.reputation && Math.random()<0.1) comp.reputation += 2;
+            }
+        }
+    }
+
+    function clampValues() {
+        if (gameState.money < -50000) gameState.money = -50000;
+        if (gameState.reputation > 100) gameState.reputation = 100;
+        if (gameState.reputation < 0) gameState.reputation = 0;
+        gameState.health = Math.min(100, gameState.health);
+        gameState.mood = Math.min(100, gameState.mood);
+    }
+
+    // форматирование денег
+    function formatMoney(val) {
+        return Math.floor(val).toLocaleString() + " ₽";
+    }
+
+    // --- Механики этапов жизни ---
+    function chooseEducation(type) {
+        if (gameState.age < 18 || gameState.stage !== "adult") { addLog("Сначала завершите школу (возраст 18+)"); return; }
+        if (type === "college") {
+            if (gameState.money >= 30000) {
+                gameState.money -= 30000;
+                gameState.education = "college";
+                gameState.intelligence += 3;
+                addLog("🎓 Вы закончили колледж! Интеллект +3, быстрый старт карьеры.");
+                gameState.stage = "working";
+                gameState.workJob = JOBS.find(j=>j.title==="Строитель") || JOBS[2];
+                gameState.workExp = 0;
+            } else addLog("Не хватает 30000 на колледж");
+        } else if (type === "university") {
+            if (gameState.money >= 80000) {
+                gameState.money -= 80000;
+                gameState.education = "university";
+                gameState.intelligence += 6;
+                gameState.communication += 4;
+                gameState.leadership += 3;
+                addLog("🏛️ Университет окончен! + интеллект, лидерство. Доступ к престижным профессиям.");
+                gameState.stage = "working";
+                gameState.workJob = JOBS.find(j=>j.title==="Инженер") || JOBS[3];
+                gameState.workExp = 0;
+            } else addLog("Недостаточно денег для университета (80000)");
+        } else if (type === "work") {
+            gameState.education = "none";
+            gameState.stage = "working";
+            gameState.workJob = JOBS[0];
+            addLog("Вы пошли работать разнорабочим. Накопите капитал для бизнеса.");
+        }
+        renderAll();
+        saveGame();
+    }
+
+    function foundCompany() {
+        if (gameState.hasCompany) { addLog("Компания уже существует!"); return; }
+        if (gameState.money < 100000) { addLog("Для основания компании нужно 100 000 ₽"); return; }
+        if (gameState.workExp < 12 && gameState.age < 25) { addLog("Мало опыта работы, нужно больше месяцев работать."); return; }
+        gameState.money -= 100000;
+        gameState.hasCompany = true;
+        gameState.reputation = Math.max(30, gameState.reputation);
+        gameState.workers = { builders: 3, engineers: 1, managers: 0, drivers: 1 };
+        gameState.vehicles = { excavators: 1, cranes: 0, trucks: 1, mixers: 0 };
+        addLog("🏭 Вы основали строительную компанию! Теперь управляйте проектами.");
+        renderAll();
+    }
+
+    function startProject(template) {
+        if (!gameState.hasCompany) { addLog("Сначала откройте компанию"); return; }
+        let cost = template.cost * gameState.inflation;
+        let workersNeeded = template.reqBuilders;
+        if (gameState.workers.builders < workersNeeded) { addLog(`Не хватает строителей (нужно ${workersNeeded})`); return; }
+        if (gameState.materials < template.reqMaterials) { addLog(`Не хватает материалов: ${template.reqMaterials}`); return; }
+        if (gameState.money < cost) { addLog(`Не хватает денег на старт проекта: ${formatMoney(cost)}`); return; }
+        gameState.money -= cost;
+        gameState.materials -= template.reqMaterials;
+        let newProj = {
+            id: gameState.nextProjectId++,
+            name: template.name,
+            duration: template.duration,
+            cost: cost,
+            revenue: template.revenue * (0.9 + Math.random() * 0.3) * gameState.marketBoom,
+            difficulty: template.difficulty,
+            progress: 0,
+            reqBuilders: template.reqBuilders
+        };
+        gameState.activeProjects.push(newProj);
+        addLog(`📐 Начат проект: ${newProj.name}, длительность ${template.duration} дней.`);
+        renderAll();
+    }
+
+    function hireWorker(type) {
+        if (!gameState.hasCompany) return;
+        let costs = { builders: 2000, engineers: 4000, managers: 5000, drivers: 2500 };
+        if (gameState.money >= costs[type]) {
+            gameState.money -= costs[type];
+            gameState.workers[type]++;
+            addLog(`Нанят ${type}, +1`);
+        } else addLog("Не хватает денег для найма");
+        renderAll();
+    }
+
+    function buyVehicle(type) {
+        if (!gameState.hasCompany) return;
+        let price = { excavators: 45000, cranes: 120000, trucks: 35000, mixers: 40000 };
+        if (gameState.money >= price[type]) {
+            gameState.money -= price[type];
+            gameState.vehicles[type]++;
+            addLog(`Куплена техника: ${type}`);
+        } else addLog("Денег мало");
+        renderAll();
+    }
+
+    function buyRealEstate() {
+        if (!gameState.hasCompany || gameState.money < 250000) { addLog("Требуется 250к и компания"); return; }
+        gameState.money -= 250000;
+        let estate = { type: "ТЦ", income: 4800 + Math.floor(Math.random() * 3000), cost: 250000, name: "Торговый павильон" };
+        gameState.realEstate.push(estate);
+        addLog(`🏬 Куплена коммерческая недвижимость, доход ${estate.income} в день.`);
+        renderAll();
+    }
+
+    function takeLoan() {
+        let amount = 50000;
+        gameState.money += amount;
+        gameState.bankLoan += amount;
+        addLog(`Кредит ${formatMoney(amount)} взят. Ежемесячный процент 2.5%`);
+        renderAll();
+    }
+
+    function getMarried() {
+        if (gameState.married) { addLog("Уже в браке"); return; }
+        if (gameState.money < 20000) { addLog("Свадьба стоит 20000"); return; }
+        gameState.money -= 20000;
+        gameState.married = true;
+        gameState.spouseName = "Супруг(а)";
+        addLog("💍 Вы поженились! Появились семейные расходы, но настроение выше.");
+        gameState.mood += 15;
+        renderAll();
+    }
+
+    function haveChild() {
+        if (!gameState.married) { addLog("Нужен брак"); return; }
+        gameState.children++;
+        addLog(`👶 У вас родился ребенок! Теперь детей: ${gameState.children}`);
+        renderAll();
+    }
+
+    function gameOver(reason) {
+        addLog(`💀 ИГРА ОКОНЧЕНА: ${reason}. Перезагрузите страницу для новой игры.`);
+        alert("Game Over: " + reason);
+        // блокируем взаимодействие (простая заглушка)
+        document.querySelectorAll("button").forEach(btn => btn.disabled = true);
+    }
+
+    function resetGame() {
+        localStorage.removeItem("empireBuilderSave");
+        location.reload();
+    }
+
+    // ---- отрисовка UI (динамические вкладки) ----
+    function renderAll() {
+        renderStatsBar();
+        renderTabsAndPanes();
+        renderLog();
+    }
+
+    function renderStatsBar() {
+        let bar = document.getElementById("statsBar");
+        bar.innerHTML = `
+            <div class="stat"><span>💰</span> <span class="value">${formatMoney(gameState.money)}</span></div>
+            <div class="stat"><span>🏭 Репутация</span> <span class="value">${gameState.reputation}</span></div>
+            <div class="stat"><span>🧠 Инт/${gameState.intelligence} | Лид/${gameState.leadership}</span></div>
+            <div class="stat"><span>❤️ Здоровье ${Math.floor(gameState.health)}%</span></div>
+            <div class="stat"><span>😊 Настроение ${Math.floor(gameState.mood)}%</span></div>
+            <div class="stat"><span>📆 ${gameState.day}.${gameState.month}.${gameState.year} (возраст ${gameState.age})</span></div>
+        `;
+    }
+
+    function renderTabsAndPanes() {
+        const tabs = ["Жизнь", "Компания", "Персонал и техника", "Недвижимость", "Тендеры/Город", "События"];
+        const tabContainer = document.getElementById("tabs");
+        const contentDiv = document.getElementById("tabContent");
+        tabContainer.innerHTML = "";
+        contentDiv.innerHTML = "";
+        let activeTab = localStorage.getItem("activeTab") || "Жизнь";
+        tabs.forEach(t => {
+            let btn = document.createElement("button");
+            btn.innerText = t;
+            btn.classList.add("tab-btn");
+            if (t === activeTab) btn.classList.add("active");
+            btn.onclick = () => {
+                document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+                btn.classList.add("active");
+                localStorage.setItem("activeTab", t);
+                renderTabsAndPanes(); // ререндер
+            };
+            tabContainer.appendChild(btn);
+        });
+        // панели
+        for (let t of tabs) {
+            let pane = document.createElement("div");
+            pane.className = "tab-pane";
+            if (t === activeTab) pane.classList.add("active");
+            pane.innerHTML = getPaneContent(t);
+            contentDiv.appendChild(pane);
+        }
+    }
+
+    function getPaneContent(tab) {
+        if (tab === "Жизнь") {
+            if (gameState.age < 18) return `<div class="card"><h3>👶 Детство (младенец-школьник)</h3><p>Вы растёте, возраст ${gameState.age}. Характеристики формируются. Каждый год растут навыки.</p><p>Интеллект: ${gameState.intelligence}, Коммуникация: ${gameState.communication}</p><button onclick="gameState.intelligence=Math.min(15,gameState.intelligence+1);renderAll();saveGame();">Учиться +1 интеллект</button></div>`;
+            let eduMsg = gameState.education ? `Образование: ${gameState.education}` : "Образование не выбрано";
+            let jobMsg = gameState.workJob ? `Работа: ${gameState.workJob.title}, зп ${gameState.workJob.salary} в день` : "Нет работы";
+            return `<div class="grid-2">
+                <div class="card"><h3>📚 Жизненный этап</h3><p>Возраст: ${gameState.age}</p><p>${eduMsg}</p><p>${jobMsg}</p><p>Опыт работы: ${gameState.workExp} мес.</p>
+                ${!gameState.education && gameState.age>=18 ? `<button onclick="chooseEducation('college')">Колледж (30000)</button><button onclick="chooseEducation('university')">Университет (80000)</button><button onclick="chooseEducation('work')">Идти работать</button>` : ""}
+                ${!gameState.hasCompany && gameState.money>=100000 && gameState.workExp>=12 ? `<button class="success-btn" onclick="foundCompany()">Основать строительную компанию (100k)</button>` : ""}
+                </div>
+                <div class="card"><h3>💑 Семья</h3><p>Брак: ${gameState.married?"Да":"Нет"}  Дети: ${gameState.children}</p><button onclick="getMarried()">Жениться/выйти замуж (20000)</button><button onclick="haveChild()">Завести ребёнка</button><p>Расходы на семью/день: ${formatMoney(gameState.familyExpenses)}</p></div>
+                <div class="card"><h3>🏦 Финансы</h3><p>Кредит: ${formatMoney(gameState.bankLoan)}</p><button onclick="takeLoan()">Взять кредит 50000</button><button onclick="if(gameState.bankLoan>0){let pay=Math.min(gameState.money,gameState.bankLoan);gameState.money-=pay;gameState.bankLoan-=pay;addLog('Погашено '+pay);renderAll();}">Погасить кредит</button></div>
+            </div>`;
+        }
+        if (tab === "Компания") {
+            if (!gameState.hasCompany) return `<div class="card"><h3>🚧 Компания не основана</h3><p>Накопите 100 000 ₽ и опыт работы 12+ месяцев, затем во вкладке "Жизнь" создайте компанию.</p></div>`;
+            let projectsHtml = `<h3>Активные проекты:</h3>`;
+            if (gameState.activeProjects.length===0) projectsHtml+=`<p>Нет активных проектов</p>`;
+            else gameState.activeProjects.forEach(p=>{ projectsHtml+=`<div>📌 ${p.name} | прогресс: ${p.progress}/${p.duration} дней | выручка ~${formatMoney(p.revenue)}</div>`; });
+            let available = PROJECT_TEMPLATES.map(t=>`<button onclick="startProject(${JSON.stringify(t).replace(/"/g,'&quot;')})">${t.name} (${t.duration} дн, доход ~${formatMoney(t.revenue)})</button>`).join('');
+            return `<div class="card"><h3>🏗️ Проекты</h3>${projectsHtml}<hr><h4>Доступные заказы:</h4>${available}<hr><p>Материалы: ${gameState.materials} ед. <button onclick="if(gameState.money>=5000){gameState.money-=5000;gameState.materials+=200;addLog('Куплено 200 материалов');renderAll();}">Купить материалы (200ед/5000₽)</button></p><p>Репутация компании: ${gameState.reputation} | Инфляция: ${gameState.inflation.toFixed(2)}</p></div>`;
+        }
+        if (tab === "Персонал и техника") {
+            if (!gameState.hasCompany) return `<div class="card">Основайте компанию для найма</div>`;
+            let w = gameState.workers;
+            let v = gameState.vehicles;
+            return `<div class="grid-2">
+                <div class="card"><h3>👷 Персонал</h3><p>Строители: ${w.builders} <button onclick="hireWorker('builders')">Нанять (2000₽)</button></p><p>Инженеры: ${w.engineers} <button onclick="hireWorker('engineers')">Нанять (4000₽)</button></p><p>Менеджеры: ${w.managers} <button onclick="hireWorker('managers')">Нанять (5000₽)</button></p><p>Водители: ${w.drivers} <button onclick="hireWorker('drivers')">Нанять (2500₽)</button></p></div>
+                <div class="card"><h3>🚜 Техника</h3><p>Экскаваторы: ${v.excavators} <button onclick="buyVehicle('excavators')">Купить (45000₽)</button></p><p>Краны: ${v.cranes} <button onclick="buyVehicle('cranes')">Купить (120000₽)</button></p><p>Грузовики: ${v.trucks} <button onclick="buyVehicle('trucks')">Купить (35000₽)</button></p><p>Бетономешалки: ${v.mixers} <button onclick="buyVehicle('mixers')">Купить (40000₽)</button></p></div>
+            </div>`;
+        }
+        if (tab === "Недвижимость") {
+            let estateHtml = gameState.realEstate.map((e,i)=>`<div>🏢 ${e.name} | Доход: ${e.income}₽/день</div>`).join('');
+            return `<div class="card"><h3>📈 Инвестиции в недвижимость</h3>${estateHtml||"Нет объектов"}<button onclick="buyRealEstate()">Купить Торговый центр (250000₽) + пассивный доход</button><p>Стройте собственные объекты для аренды (будет расширяться)</p></div>`;
+        }
+        if (tab === "Тендеры/Город") {
+            let compHtml = gameState.competitors.map(c=>`<div>🏛️ ${c.name} | Репутация: ${c.reputation} | Капитал: ${formatMoney(c.money)}</div>`).join('');
+            let tenderBtn = `<button onclick="if(gameState.reputation>50 && gameState.money>30000){addLog('Вы выиграли тендер на дорогу! +40000 и +репутация');gameState.money+=40000;gameState.reputation+=10;}else{addLog('Недостаточно репутации/денег для тендера');}">Участвовать в гос. тендере (дороги, мосты)</button>`;
+            return `<div class="card"><h3>🏙️ Город и конкуренты</h3>${compHtml}<hr>${tenderBtn}<p>Рыночный бум: x${gameState.marketBoom.toFixed(2)}</p><p>Инфляция: ${gameState.inflation.toFixed(2)}</p><button onclick="addLog('Случайное событие: город расширяется, спрос растет');">Случайное событие</button></div>`;
+        }
+        if (tab === "События") {
+            return `<div class="card"><h3>📜 Лента событий</h3><div class="log-area" id="logMessages"></div><button onclick="resetGame()" class="danger-btn">🔁 Начать новую игру (сброс)</button></div>`;
+        }
+        return "";
+    }
+
+    function renderLog() {
+        let logDiv = document.getElementById("logMessages");
+        if(logDiv) logDiv.innerHTML = gameState.lastEvents.map(e=>`<div class="event-text">${e}</div>`).join('');
+    }
+
+    function saveGame() {
+        let toSave = JSON.parse(JSON.stringify(gameState));
+        localStorage.setItem("empireBuilderSave", JSON.stringify(toSave));
+    }
+
+    function loadGame() {
+        let loaded = localStorage.getItem("empireBuilderSave");
+        if(loaded) {
+            try {
+                let saved = JSON.parse(loaded);
+                Object.assign(gameState, saved);
+                addLog("Игра загружена. Продолжайте строить империю!");
+            } catch(e) {}
+        } else {
+            // начальная инициализация младенца
+            gameState.age = 0;
+            gameState.stage = "baby";
+            gameState.intelligence = 3;
+            gameState.communication = 3;
+            gameState.leadership = 2;
+            gameState.money = 8000;
+            gameState.health = 90;
+            gameState.mood = 70;
+            addLog("👶 Вы родились! Впереди долгий путь к строительной империи.");
+        }
+        renderAll();
+    }
+
+    // запуск игры и тикер каждые 3 секунды (день)
+    let tickInterval;
+    function startGame() {
+        loadGame();
+        if(tickInterval) clearInterval(tickInterval);
+        tickInterval = setInterval(() => { gameTick(); }, 3000);
+    }
+    window.onload = startGame;
+    // экспорт глобально для кнопок
+    window.startProject = startProject; window.hireWorker = hireWorker; window.buyVehicle = buyVehicle;
+    window.buyRealEstate = buyRealEstate; window.takeLoan = takeLoan; window.getMarried = getMarried;
+    window.haveChild = haveChild; window.foundCompany = foundCompany; window.chooseEducation = chooseEducation;
+    window.resetGame = resetGame; window.saveGame = saveGame;
+</script>
+</body>
+</html>
